@@ -87,12 +87,16 @@ const getDailyWords = (seed, wordsArray) => {
 export default function EntrenarTab({ beats = [] }) {
   const [activeBeatIndex, setActiveBeatIndex] = useState(0);
   const [isTraining, setIsTraining] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
+  const [isRecording, setIsRecording] = useState(true); // Always record sessions
   const [isStudioMode, setIsStudioMode] = useState(false); // true = Headphones (digital mix), false = Plaza (ambient)
   const [currentWord, setCurrentWord] = useState('');
   const [secondsLeft, setSecondsLeft] = useState(10);
   const [recordings, setRecordings] = useState([]);
   const [isMixing, setIsMixing] = useState(false);
+
+  // Mode and Timer states
+  const [trainingMode, setTrainingMode] = useState('libre'); // 'libre' | 'reto' | 'conceptos'
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   // Smart reproducer states
   const [isIntroActive, setIsIntroActive] = useState(false);
@@ -114,6 +118,7 @@ export default function EntrenarTab({ beats = [] }) {
   const introTimeoutRef = useRef(null);
   const startTimeRef = useRef(0);
   const challengeWordIndexRef = useRef(0);
+  const stopwatchIntervalRef = useRef(null);
 
   // Local audio player states & refs
   const [playingRecId, setPlayingRecId] = useState(null);
@@ -142,21 +147,47 @@ export default function EntrenarTab({ beats = [] }) {
     return getDailyWords(dailySeed, URUGUAYAN_WORDS);
   }, [dailySeed]);
 
+  const dailyRule = React.useMemo(() => {
+    const rules = [
+      "Métrica Forzada: Cambio de tempo a 140 BPM en el segundo 30.",
+      "Conceptos Cruzados: Integrá las 3 palabras obligatorias en el primer patrón.",
+      "Modo Acelerado: Incremento de ritmo progresivo cada 4 compases.",
+      "Cortes de Beat: Silencios de batería aleatorios de 2 segundos.",
+      "Doble Tempo: Duplicar velocidad de rima en las palabras destacadas."
+    ];
+    return rules[dailySeed % rules.length];
+  }, [dailySeed]);
+
   // Load local recordings on mount
   useEffect(() => {
     loadRecordings();
     
-    // Auto-detect headphones on mount
-    detectHeadphones().then(hasHeadphones => {
-      setIsStudioMode(hasHeadphones);
-    });
+    // Auto-detect headphones on mount and listen to changes
+    const checkHeadphones = () => {
+      detectHeadphones().then(hasHeadphones => {
+        setIsStudioMode(hasHeadphones);
+      });
+    };
 
+    checkHeadphones();
 
+    if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', checkHeadphones);
+    }
 
     return () => {
       stopPlaybackAndIntervals();
+      if (navigator.mediaDevices && navigator.mediaDevices.removeEventListener) {
+        navigator.mediaDevices.removeEventListener('devicechange', checkHeadphones);
+      }
     };
   }, []);
+
+  const formatStopwatch = (totalSecs) => {
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const formatSize = (blob) => {
     if (!blob) return '0 KB';
@@ -199,6 +230,10 @@ export default function EntrenarTab({ beats = [] }) {
     if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
     if (introIntervalRef.current) clearInterval(introIntervalRef.current);
     if (introTimeoutRef.current) clearTimeout(introTimeoutRef.current);
+    if (stopwatchIntervalRef.current) {
+      clearInterval(stopwatchIntervalRef.current);
+      stopwatchIntervalRef.current = null;
+    }
   };
 
   // Swiping gestures on beat picker
@@ -212,7 +247,7 @@ export default function EntrenarTab({ beats = [] }) {
   };
 
   const handleTouchEnd = () => {
-    if (!touchStart || !touchEnd) return;
+    if (!touchStart || !touchEnd || trainingMode === 'reto') return;
     const distance = touchStart - touchEnd;
     const isLeftSwipe = distance > 50;
     const isRightSwipe = distance < -50;
@@ -225,12 +260,12 @@ export default function EntrenarTab({ beats = [] }) {
   };
 
   const nextBeat = () => {
-    if (isTraining) return;
+    if (isTraining || trainingMode === 'reto') return;
     setActiveBeatIndex(prev => (prev + 1) % activeBeats.length);
   };
 
   const prevBeat = () => {
-    if (isTraining) return;
+    if (isTraining || trainingMode === 'reto') return;
     setActiveBeatIndex(prev => (prev - 1 + activeBeats.length) % activeBeats.length);
   };
 
@@ -246,19 +281,24 @@ export default function EntrenarTab({ beats = [] }) {
     }
   };
 
-  // Accept Daily Challenge Action
-  const handleAcceptChallenge = () => {
-    setIsChallengeMode(true);
-    isChallengeModeRef.current = true;
-    
-    // Configure players with Daily Challenge beat
-    setActiveBeatIndex(dailyBeatIndex);
-    
-    // Force record session
-    setIsRecording(true);
+  const handleModeChange = (mode) => {
+    if (isTraining) return;
+    setTrainingMode(mode);
+    if (mode === 'reto') {
+      setActiveBeatIndex(dailyBeatIndex);
+    }
+  };
 
-    // Call startTraining immediately overriding settings
-    startTraining(dailyBeat, true);
+  const handleStartClick = () => {
+    if (trainingMode === 'reto') {
+      setIsChallengeMode(true);
+      isChallengeModeRef.current = true;
+      startTraining(dailyBeat, true);
+    } else {
+      setIsChallengeMode(false);
+      isChallengeModeRef.current = false;
+      startTraining(activeBeat, true);
+    }
   };
 
   // Start Training Routine
@@ -410,19 +450,28 @@ export default function EntrenarTab({ beats = [] }) {
 
           startTimeRef.current = Date.now(); // Reset time ref for recording duration
 
-          // Pick first word and start word rotation interval
-          challengeWordIndexRef.current = 0;
-          pickWord();
-          
-          wordIntervalRef.current = setInterval(() => {
-            setSecondsLeft(prev => {
-              if (prev <= 1) {
-                pickWord();
-                return 10;
-              }
-              return prev - 1;
-            });
-          }, 1000);
+          // Pick first word and start appropriate interval based on mode
+          if (trainingMode === 'libre') {
+            let elapsed = 0;
+            setElapsedSeconds(0);
+            stopwatchIntervalRef.current = setInterval(() => {
+              elapsed += 1;
+              setElapsedSeconds(elapsed);
+            }, 1000);
+          } else {
+            challengeWordIndexRef.current = 0;
+            pickWord();
+            
+            wordIntervalRef.current = setInterval(() => {
+              setSecondsLeft(prev => {
+                if (prev <= 1) {
+                  pickWord();
+                  return 10;
+                }
+                return prev - 1;
+              });
+            }, 1000);
+          }
         }
       } else if (currentTime >= introDuration - beatDuration) {
         setCountdownValue('¡TIEMPO!');
@@ -445,10 +494,16 @@ export default function EntrenarTab({ beats = [] }) {
       mediaRecorderRef.current.stop();
     }
     
+    if (stopwatchIntervalRef.current) {
+      clearInterval(stopwatchIntervalRef.current);
+      stopwatchIntervalRef.current = null;
+    }
+    
     setIsTraining(false);
     setIsIntroActive(false);
     setCountdownValue(null);
     setSecondsLeft(10);
+    setElapsedSeconds(0);
     setCurrentWord('');
     setIsChallengeMode(false);
     isChallengeModeRef.current = false;
@@ -631,15 +686,29 @@ export default function EntrenarTab({ beats = [] }) {
             /* Active freestyle session */
             <div className="freestyle-active-container">
               {/* Top timer */}
-              <div className="timer-section mono-text">
-                <span>{secondsLeft.toString().padStart(2, '0')}s</span>
-                <div className="small-detail">SIGUIENTE PALABRA</div>
-              </div>
+              {trainingMode === 'libre' ? (
+                <div className="timer-section mono-text">
+                  <span>{formatStopwatch(elapsedSeconds)}</span>
+                  <div className="small-detail">TIEMPO TRANSCURRIDO</div>
+                </div>
+              ) : (
+                <div className="timer-section mono-text">
+                  <span>{secondsLeft.toString().padStart(2, '0')}s</span>
+                  <div className="small-detail">SIGUIENTE PALABRA</div>
+                </div>
+              )}
 
               {/* Central giant word */}
-              <div className="word-section">
-                <h1 className="giant-word">{currentWord}</h1>
-              </div>
+              {trainingMode !== 'libre' && (
+                <div className="word-section">
+                  <h1 className="giant-word">{currentWord}</h1>
+                </div>
+              )}
+              {trainingMode === 'libre' && (
+                <div className="word-section">
+                  <h1 className="giant-word libre-placeholder">FLOW LIBRE</h1>
+                </div>
+              )}
 
               {/* Bottom active words tracker (only in Daily Challenge mode) */}
               {isChallengeMode && (
@@ -684,52 +753,50 @@ export default function EntrenarTab({ beats = [] }) {
           {/* Deck Title */}
           <div className="deck-title-box">
             <span className="mono-text sub">BEATMARKER - REPRODUCTOR INTELIGENTE</span>
-            <h2 className="title">CYPHER PLAZA</h2>
+            <h2 className="title">CYPHER STUDIO</h2>
           </div>
 
-          {/* Daily Challenge Highlighted Card */}
-          <div className="daily-challenge-panel brutalist-card">
-            <div className="card-badge mono-text">DESAFÍO DEL DÍA</div>
-            <div className="card-header-row">
-              <span className="mono-text challenge-date">
-                {new Date().toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-              </span>
-            </div>
-            <h3 className="challenge-beat-title">
-              BASE: {dailyBeat?.beat_title || dailyBeat?.name || 'Cargando...'}
-            </h3>
-            <div className="challenge-meta mono-text">
-              TEMPO: {dailyBeat?.bpm} BPM | GÉNERO: {(dailyBeat?.genre || 'Género').toUpperCase()}
-            </div>
-            <div className="challenge-words-row">
-              <span className="words-label mono-text">CONCEPTOS OBLIGATORIOS:</span>
-              <div className="words-badge-container">
-                {dailyWords.map(w => (
-                  <span key={w} className="challenge-word-badge mono-text">{w}</span>
-                ))}
-              </div>
-            </div>
+          {/* Mode Selector Tabs */}
+          <div className="mode-tabs">
             <button 
-              onClick={handleAcceptChallenge} 
-              className="accept-challenge-btn mono-text"
+              className={`mode-tab ${trainingMode === 'libre' ? 'active' : ''}`}
+              onClick={() => handleModeChange('libre')}
             >
-              ACEPTAR DESAFÍO
+              LIBRE
+            </button>
+            <button 
+              className={`mode-tab ${trainingMode === 'reto' ? 'active' : ''}`}
+              onClick={() => handleModeChange('reto')}
+            >
+              RETO DIARIO ⚡
+            </button>
+            <button 
+              className={`mode-tab ${trainingMode === 'conceptos' ? 'active' : ''}`}
+              onClick={() => handleModeChange('conceptos')}
+            >
+              CONCEPTOS
             </button>
           </div>
 
-          {/* Beat Swiper Card (Brutalist style) */}
+          {/* Beat Swiper Card */}
           <div 
-            className="beat-picker-card brutalist-deck"
+            className={`beat-picker-card brutalist-deck ${trainingMode === 'reto' ? 'locked' : ''}`}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
           >
-            <button onClick={prevBeat} className="picker-arrow-btn">
+            <button 
+              onClick={prevBeat} 
+              className={`picker-arrow-btn ${trainingMode === 'reto' ? 'disabled' : ''}`}
+              disabled={trainingMode === 'reto'}
+            >
               <ChevronLeft size={24} />
             </button>
 
             <div className="beat-card-content">
-              <span className="mono-text prod-label">{beatProdStr.toUpperCase()}</span>
+              <span className="mono-text prod-label">
+                {trainingMode === 'reto' ? '🔴 RETO DEL DÍA' : beatProdStr.toUpperCase()}
+              </span>
               <h3 className="beat-name">{beatNameStr}</h3>
               <div className="beat-meta-row mono-text">
                 <span className="genre-label">{beatGenreStr.toUpperCase()}</span>
@@ -738,46 +805,39 @@ export default function EntrenarTab({ beats = [] }) {
               </div>
             </div>
 
-            <button onClick={nextBeat} className="picker-arrow-btn">
+            <button 
+              onClick={nextBeat} 
+              className={`picker-arrow-btn ${trainingMode === 'reto' ? 'disabled' : ''}`}
+              disabled={trainingMode === 'reto'}
+            >
               <ChevronRight size={24} />
             </button>
           </div>
 
-          {/* Configuration Options (Thumb accessible zone) */}
-          <div className="config-grid">
-            {/* Record toggle */}
-            <button 
-              className={`config-card brutalist-config ${isRecording ? 'active' : ''}`}
-              onClick={() => setIsRecording(prev => !prev)}
-            >
-              {isRecording ? <Mic size={20} /> : <MicOff size={20} />}
-              <div>
-                <div className="mono-text label">MICROFONO</div>
-                <div className="val">{isRecording ? 'GRABAR SESIÓN' : 'SOLO AUDIO'}</div>
+          {/* Daily Challenge Rules Banner */}
+          {trainingMode === 'reto' && (
+            <div className="rules-banner mono-text">
+              <span className="rules-title">RETO DE HOY</span>
+              <p className="rules-desc">{dailyRule}</p>
+              <div className="rules-concepts-row">
+                <span className="concepts-label">CONCEPTOS:</span>
+                <div className="concepts-badges">
+                  {dailyWords.map(w => (
+                    <span key={w} className="rules-concept-badge">{w}</span>
+                  ))}
+                </div>
               </div>
+            </div>
+          )}
+
+          {/* Single giant START action button and Hardware Status */}
+          <div className="start-container">
+            <button onClick={handleStartClick} className="btn-empezar-giant">
+              [ EMPEZAR ]
             </button>
-
-            {/* Studio vs Plaza mode switch */}
-            <button 
-              className={`config-card brutalist-config ${isStudioMode ? 'studio' : 'plaza'}`}
-              onClick={() => setIsStudioMode(prev => !prev)}
-            >
-              <Headphones size={20} />
-              <div>
-                <div className="mono-text label">LÓGICA AUDIO</div>
-                <div className="val">{isStudioMode ? 'MODO ESTUDIO' : 'MODO PLAZA'}</div>
-              </div>
-            </button>
-          </div>
-
-
-
-          {/* Big START button (Brutalist thick) */}
-          <div className="start-btn-container">
-            <button onClick={() => startTraining()} className="giant-start-btn brutalist-btn-start">
-              <Play size={28} fill="#121212" />
-              <span>EMPEZAR CYPHER</span>
-            </button>
+            <div className="hardware-status-text mono-text">
+              {isStudioMode ? "🎧 Modo Estudio Activo" : "🔊 Modo Plaza Activo"}
+            </div>
           </div>
 
           {/* Saved recordings list */}
@@ -1113,110 +1173,38 @@ export default function EntrenarTab({ beats = [] }) {
           font-weight: 700;
         }
 
-        /* Daily Challenge Card Styles */
-        .daily-challenge-panel {
-          border: 2px solid var(--border-subtle);
-          border-radius: 10px;
-          padding: 16px;
-          background-color: var(--bg-panel);
-          box-shadow: inset 1px 1px 0px rgba(255,255,255,0.05),
-                      0px 6px 12px rgba(0, 0, 0, 0.4);
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          position: relative;
-          overflow: hidden;
-        }
-        
-        .daily-challenge-panel::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 3px;
-          background: linear-gradient(90deg, var(--color-accent-amber), var(--color-accent-green));
-        }
-
-        .daily-challenge-panel .card-badge {
-          align-self: flex-start;
-          font-size: 8px;
-          font-weight: 800;
-          background-color: var(--color-accent-amber);
-          color: #000;
-          padding: 3px 8px;
-          border-radius: 4px;
-        }
-
-        .daily-challenge-panel .card-header-row {
+        /* Mode Selector Tabs */
+        .mode-tabs {
           display: flex;
           justify-content: space-between;
-          font-size: 9px;
-          color: var(--text-secondary);
-        }
-
-        .daily-challenge-panel .challenge-beat-title {
-          font-size: 15px;
-          font-weight: bold;
-          color: var(--text-primary);
-          margin: 4px 0 0 0;
-        }
-
-        .daily-challenge-panel .challenge-meta {
-          font-size: 9px;
-          color: var(--text-secondary);
-        }
-
-        .daily-challenge-panel .challenge-words-row {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          margin-top: 4px;
-        }
-
-        .daily-challenge-panel .words-label {
-          font-size: 8px;
-          color: var(--text-secondary);
-          font-weight: 700;
-        }
-
-        .daily-challenge-panel .words-badge-container {
-          display: flex;
-          gap: 8px;
-        }
-
-        .daily-challenge-panel .challenge-word-badge {
-          font-size: 9px;
-          font-weight: bold;
           background-color: var(--bg-card);
           border: 1px solid var(--border-subtle);
-          padding: 4px 8px;
-          border-radius: 4px;
-          color: var(--color-accent-green);
+          border-radius: 8px;
+          padding: 4px;
+          margin-bottom: 8px;
+          box-shadow: inset 1px 1px 3px rgba(0,0,0,0.6);
         }
 
-        .daily-challenge-panel .accept-challenge-btn {
-          width: 100%;
-          height: 40px;
-          background-color: var(--bg-screen);
-          color: var(--color-accent-amber);
-          border: 1px solid var(--color-accent-amber);
-          border-radius: 6px;
+        .mode-tab {
+          flex: 1;
+          text-align: center;
+          padding: 10px 4px;
           font-size: 11px;
-          font-weight: bold;
+          font-weight: 700;
+          font-family: var(--font-mono);
+          color: var(--text-secondary);
+          border-radius: 6px;
+          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          letter-spacing: 0.02em;
           cursor: pointer;
-          transition: all 0.2s ease;
-          box-shadow: inset 1px 1px 0px rgba(255,255,255,0.03), 0px 2px 4px rgba(0,0,0,0.3);
-          margin-top: 6px;
-          letter-spacing: 0.05em;
         }
 
-        .daily-challenge-panel .accept-challenge-btn:active {
-          transform: translateY(1px);
-          box-shadow: inset 1.5px 2px 3px rgba(0,0,0,0.8);
-          background-color: #0d0e0f;
+        .mode-tab.active {
+          background-color: var(--bg-panel);
+          color: var(--color-accent-amber);
+          box-shadow: 1px 1px 0px var(--border-highlight), 0px 2px 4px rgba(0, 0, 0, 0.4);
         }
-        
+
         .beat-picker-card.brutalist-deck {
           display: flex;
           align-items: center;
@@ -1224,12 +1212,19 @@ export default function EntrenarTab({ beats = [] }) {
           border: 1px solid var(--border-subtle);
           border-radius: 8px;
           background-color: var(--bg-screen);
-          padding: 16px 8px;
+          padding: 20px 12px;
           box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.8), 0px 1px 0px var(--border-highlight);
           color: var(--color-accent-amber);
           text-shadow: 0 0 6px rgba(255,166,0,0.4);
           font-family: var(--font-mono);
+          transition: all 0.3s ease;
         }
+        
+        .beat-picker-card.brutalist-deck.locked {
+          border-color: rgba(255, 166, 0, 0.2);
+          opacity: 0.85;
+        }
+
         .beat-card-content {
           text-align: center;
           flex: 1;
@@ -1267,83 +1262,132 @@ export default function EntrenarTab({ beats = [] }) {
           align-items: center;
           color: var(--text-secondary);
           transition: all 0.1s ease;
+          cursor: pointer;
         }
-        .picker-arrow-btn:active {
+        
+        .picker-arrow-btn.disabled {
+          opacity: 0.15;
+          cursor: not-allowed;
+        }
+
+        .picker-arrow-btn:not(.disabled):active {
           color: var(--color-accent-amber);
           transform: scale(0.95);
         }
-        
-        .config-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
-        }
-        .config-card.brutalist-config {
-          border: 1px solid var(--border-subtle);
+
+        /* Rules Banner Styles */
+        .rules-banner {
+          background-color: rgba(255, 166, 0, 0.03);
+          border: 1px dashed rgba(255, 166, 0, 0.25);
           border-radius: 8px;
-          padding: 12px;
+          padding: 12px 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          text-align: center;
+          animation: fade-in 0.3s ease;
+        }
+
+        @keyframes fade-in {
+          from { opacity: 0; transform: translateY(-5px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .rules-banner .rules-title {
+          font-size: 9px;
+          font-weight: 700;
+          color: var(--color-accent-amber);
+          letter-spacing: 0.05em;
+        }
+
+        .rules-banner .rules-desc {
+          font-size: 11px;
+          color: var(--text-primary);
+          line-height: 1.4;
+        }
+
+        .rules-concepts-row {
           display: flex;
           align-items: center;
-          gap: 10px;
-          text-align: left;
-          background-color: var(--bg-card);
-          box-shadow: inset 1px 1px 0px rgba(255,255,255,0.03), 
-                      0px 3px 6px rgba(0, 0, 0, 0.3);
-          transition: all 0.1s ease;
+          justify-content: center;
+          gap: 8px;
+          margin-top: 4px;
+          border-top: 1px dashed rgba(255, 166, 0, 0.15);
+          padding-top: 6px;
         }
-        .config-card.brutalist-config.active, .config-card.brutalist-config.studio {
-          background-color: var(--bg-screen);
-          border-color: var(--color-accent-amber);
-          color: var(--color-accent-amber);
-          box-shadow: inset 1.5px 2px 3px rgba(0,0,0,0.8);
-        }
-        .config-card.brutalist-config.active .label, 
-        .config-card.brutalist-config.studio .label {
-          color: rgba(255, 166, 0, 0.6);
-        }
-        .config-card.brutalist-config:active {
-          transform: translateY(1px);
-          box-shadow: inset 1.5px 2.5px 3px rgba(0,0,0,0.6);
-        }
-        .config-card .label {
+
+        .concepts-label {
           font-size: 8px;
           color: var(--text-secondary);
           font-weight: 700;
-          font-family: var(--font-mono);
         }
-        .config-card .val {
-          font-size: 10px;
-          font-weight: bold;
-          text-transform: uppercase;
+
+        .concepts-badges {
+          display: flex;
+          gap: 6px;
         }
-        
-        .start-btn-container {
+
+        .rules-concept-badge {
+          font-size: 9px;
+          font-weight: 700;
+          background-color: rgba(57, 211, 83, 0.08);
+          border: 1px solid rgba(57, 211, 83, 0.25);
+          color: var(--color-accent-green);
+          padding: 2px 6px;
+          border-radius: 4px;
+        }
+
+        /* Start Button & Hardware Status */
+        .start-container {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          margin: 8px 0;
+          gap: 12px;
+        }
+
+        .btn-empezar-giant {
           width: 100%;
-        }
-        .giant-start-btn.brutalist-btn-start {
-          width: 100%;
-          height: 56px;
+          height: 64px;
           background-color: var(--bg-panel);
-          color: var(--text-primary);
+          color: var(--color-accent-green);
           border: 1px solid var(--border-subtle);
-          border-radius: 8px;
-          box-shadow: inset 1px 1px 0px rgba(255, 255, 255, 0.08), 
+          border-radius: 12px;
+          font-size: 18px;
+          font-weight: 900;
+          font-family: var(--font-mono);
+          letter-spacing: 0.08em;
+          box-shadow: inset 1px 1px 0px var(--border-highlight), 
                       0px 6px 12px rgba(0, 0, 0, 0.4), 
                       0px 2px 4px rgba(0, 0, 0, 0.25);
+          transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
           display: flex;
           justify-content: center;
           align-items: center;
-          gap: 10px;
-          font-size: 14px;
-          font-weight: 700;
-          font-family: var(--font-mono);
-          letter-spacing: 0.05em;
-          transition: all 0.1s ease;
+          text-shadow: 0 0 8px rgba(57, 211, 83, 0.25);
+          cursor: pointer;
         }
-        .giant-start-btn.brutalist-btn-start:active {
+
+        .btn-empezar-giant:active {
           transform: translateY(2px);
-          box-shadow: inset 2px 2.5px 5px rgba(0, 0, 0, 0.8), 0px 1px 0px rgba(255,255,255,0.03);
+          box-shadow: inset 2px 2.5px 5px rgba(0, 0, 0, 0.8), 0px 1px 0px var(--border-highlight);
           background-color: #232426;
+          color: rgba(57, 211, 83, 0.85);
+        }
+
+        .hardware-status-text {
+          font-size: 11px;
+          font-weight: 500;
+          color: var(--text-secondary);
+          text-align: center;
+          letter-spacing: 0.02em;
+        }
+
+        .giant-word.libre-placeholder {
+          color: var(--text-secondary);
+          text-shadow: 0 0 8px rgba(255, 255, 255, 0.05);
+          font-size: 36px;
+          opacity: 0.6;
         }
         
         /* Recordings history list */

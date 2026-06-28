@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Calendar, Clock, MapPin, MessageSquare, Compass, Heart } from 'lucide-react';
 
 const InstagramIcon = ({ size = 18, className = "", style = {} }) => (
@@ -39,6 +39,13 @@ export default function BottomSheet({
   onToggleFavorite 
 }) {
   if (!event) return null;
+
+  const [imageError, setImageError] = useState(false);
+
+  // Reset image error state when event changes
+  useEffect(() => {
+    setImageError(false);
+  }, [event.id]);
 
   // External Links
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${event.lat},${event.lng}`;
@@ -93,15 +100,29 @@ export default function BottomSheet({
 
           {/* Flyer Image Container (in original full-color as specified) */}
           <div className="flyer-container">
-            <img 
-              src={event.flyer_url || '/images/placeholder_white.png'} 
-              alt={`Flyer de ${event.nombre}`} 
-              className="flyer-img"
-              onError={(e) => {
-                // Fallback in case remote image fails or doesn't exist
-                e.target.src = 'https://picsum.photos/id/1025/600/800';
-              }}
-            />
+            {(!event.flyer_url || event.flyer_url.includes('placeholder') || event.flyer_url.includes('picsum.photos') || imageError) ? (
+              <div className="flyer-fallback-banner">
+                <div className="fallback-grid-overlay" />
+                <div className="fallback-content">
+                  <span className="fallback-subtitle">{event.departamento.toUpperCase()}</span>
+                  <h3 className="fallback-title">{event.nombre}</h3>
+                  <div className="fallback-decoration">
+                    <span className="deco-dot green" />
+                    <span className="deco-dot amber" />
+                    <span className="deco-dot red" />
+                    <span className="deco-line" />
+                    <span className="mono-text deco-tech">SYS-LNK // UNDERLAND</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <img 
+                src={event.flyer_url} 
+                alt={`Flyer de ${event.nombre}`} 
+                className="flyer-img"
+                onError={() => setImageError(true)}
+              />
+            )}
           </div>
 
           {/* Detailed Info Grid */}
@@ -339,7 +360,92 @@ export default function BottomSheet({
           width: 100%;
           height: 100%;
           object-fit: cover;
-          filter: grayscale(20%);
+        }
+        .flyer-fallback-banner {
+          width: 100%;
+          height: 100%;
+          position: relative;
+          background: linear-gradient(135deg, #1C1D1F 0%, #0F0F10 100%);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+          border-radius: 8px;
+          overflow: hidden;
+          border: 1px solid rgba(255, 166, 0, 0.15);
+        }
+        .fallback-grid-overlay {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-size: 16px 16px;
+          background-image: 
+            linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+          pointer-events: none;
+        }
+        .fallback-content {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          width: 100%;
+        }
+        .fallback-subtitle {
+          font-family: var(--font-mono);
+          font-size: 9px;
+          font-weight: 700;
+          color: var(--color-accent-amber);
+          letter-spacing: 0.15em;
+          margin-bottom: 6px;
+          text-shadow: 0 0 8px rgba(255, 166, 0, 0.3);
+        }
+        .fallback-title {
+          font-family: var(--font-editorial);
+          font-size: 18px;
+          font-weight: 900;
+          color: var(--text-primary);
+          letter-spacing: -0.02em;
+          text-transform: uppercase;
+          margin-bottom: 12px;
+          max-width: 90%;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+          text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+          line-height: 1.25;
+        }
+        .fallback-decoration {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          width: 100%;
+          justify-content: center;
+        }
+        .deco-dot {
+          width: 4px;
+          height: 4px;
+          border-radius: 50%;
+          box-shadow: 0 0 6px currentColor;
+        }
+        .deco-dot.green { color: var(--color-accent-green); background-color: var(--color-accent-green); }
+        .deco-dot.amber { color: var(--color-accent-amber); background-color: var(--color-accent-amber); }
+        .deco-dot.red { color: var(--color-accent-red); background-color: var(--color-accent-red); }
+        .deco-line {
+          height: 1px;
+          flex: 0.2;
+          background-color: var(--border-subtle);
+        }
+        .deco-tech {
+          font-size: 7px;
+          color: var(--text-secondary);
+          letter-spacing: 0.05em;
         }
         
         .info-grid {

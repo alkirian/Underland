@@ -30,6 +30,8 @@ const getOrganizerLogo = (instagramUrl) => {
   if (url.includes('darkjail')) return '/images/logos/darkjail.jpg';
   if (url.includes('redbullbatalla')) return '/images/logos/redbullbatalla.jpg';
   if (url.includes('hypnotic')) return '/images/logos/hypnotic.png';
+  if (url.includes('greenandwhite')) return '/images/logos/greenandwhite.png';
+  if (url.includes('muertesubita')) return '/images/logos/muertesubita.png';
   return '/images/logos/instagram.png';
 };
 
@@ -742,7 +744,7 @@ export default function AgendaTab({ events, onSelectEvent, selectedEvent, onView
         .sheet-scroll-content {
           flex: 1;
           overflow-y: auto;
-          padding: 16px;
+          padding: 10px 12px;
           background-color: var(--bg-base);
         }
 
@@ -779,18 +781,19 @@ export default function AgendaTab({ events, onSelectEvent, selectedEvent, onView
         .events-feed {
           display: flex;
           flex-direction: column;
-          gap: 16px;
+          gap: 10px;
           padding-bottom: 24px;
         }
         
         .event-card.brutalist-card {
           display: flex;
           border: 1px solid var(--border-subtle);
-          border-radius: 10px;
+          border-left: 3px solid var(--color-accent-amber);
+          border-radius: 6px;
           overflow: hidden;
           background-color: var(--bg-panel);
           height: auto;
-          min-height: 120px;
+          min-height: 95px;
           box-shadow: inset 1px 1px 0px rgba(255,255,255,0.05), 
                       0px 4px 8px rgba(0, 0, 0, 0.4);
           transition: all 0.1s ease;
@@ -804,7 +807,7 @@ export default function AgendaTab({ events, onSelectEvent, selectedEvent, onView
         }
         
         .card-logo-box {
-          width: 68px;
+          width: 58px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -814,26 +817,27 @@ export default function AgendaTab({ events, onSelectEvent, selectedEvent, onView
         }
         
         .card-logo-img {
-          width: 44px;
-          height: 44px;
+          width: 36px;
+          height: 36px;
           border-radius: 50%;
           object-fit: cover;
-          border: 1.5px solid var(--border-subtle);
-          filter: grayscale(100%);
-          transition: filter 0.3s ease, transform 0.3s ease;
+          border: 1.5px solid rgba(255, 166, 0, 0.45);
+          box-shadow: 0 0 6px rgba(255, 166, 0, 0.2);
+          transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
         }
         
         .event-card.brutalist-card:hover .card-logo-img {
-          filter: grayscale(0%);
+          border-color: var(--color-accent-amber);
+          box-shadow: 0 0 10px rgba(255, 166, 0, 0.45);
           transform: scale(1.05);
         }
         
         .card-details {
           flex: 1;
-          padding: 12px;
+          padding: 8px 10px;
           display: flex;
           flex-direction: column;
-          gap: 6px;
+          gap: 4px;
           overflow: hidden;
         }
         
@@ -860,7 +864,7 @@ export default function AgendaTab({ events, onSelectEvent, selectedEvent, onView
         }
         
         .card-title {
-          font-size: 15px;
+          font-size: 13px;
           font-weight: 700;
           line-height: 1.2;
           white-space: nowrap;
@@ -871,8 +875,8 @@ export default function AgendaTab({ events, onSelectEvent, selectedEvent, onView
         
         .card-info-row {
           display: flex;
-          gap: 12px;
-          font-size: 9px;
+          gap: 8px;
+          font-size: 8.5px;
           color: var(--text-secondary);
           align-items: center;
           font-family: var(--font-mono);
@@ -889,26 +893,26 @@ export default function AgendaTab({ events, onSelectEvent, selectedEvent, onView
         
         .card-actions-row {
           display: flex;
-          gap: 8px;
+          gap: 6px;
           margin-top: auto;
-          padding-top: 6px;
+          padding-top: 4px;
         }
         
         .card-action-btn {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          gap: 6px;
-          padding: 5px 10px;
+          gap: 4px;
+          padding: 4px 8px;
           border: 1px solid var(--border-subtle);
           background-color: var(--bg-card);
           color: var(--text-primary);
-          font-size: 8px;
+          font-size: 7.5px;
           font-family: var(--font-mono);
           font-weight: bold;
           text-transform: uppercase;
           transition: all 0.1s ease;
-          border-radius: 6px;
+          border-radius: 4px;
           box-shadow: inset 1px 1px 0px rgba(255,255,255,0.03), 0px 1px 2px rgba(0,0,0,0.3);
         }
         
