@@ -88,7 +88,7 @@ export default function EntrenarTab({ beats = [] }) {
   const [activeBeatIndex, setActiveBeatIndex] = useState(0);
   const [isTraining, setIsTraining] = useState(false);
   const [isRecording, setIsRecording] = useState(true); // Always record sessions
-  const [isStudioMode, setIsStudioMode] = useState(false); // true = Headphones (digital mix), false = Plaza (ambient)
+  const [isStudioMode, setIsStudioMode] = useState(false); // true = Headphones (digital mix + bypass HPF), false = Speakers (no direct mix + HPF active)
   const [currentWord, setCurrentWord] = useState('');
   const [secondsLeft, setSecondsLeft] = useState(10);
   const [recordings, setRecordings] = useState([]);
@@ -97,6 +97,12 @@ export default function EntrenarTab({ beats = [] }) {
   // Mode and Timer states
   const [trainingMode, setTrainingMode] = useState('libre'); // 'libre' | 'reto' | 'conceptos'
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const isManualOverrideRef = useRef(false);
+
+  const toggleStudioModeManually = () => {
+    isManualOverrideRef.current = true;
+    setIsStudioMode(prev => !prev);
+  };
 
   // Smart reproducer states
   const [isIntroActive, setIsIntroActive] = useState(false);
@@ -164,8 +170,11 @@ export default function EntrenarTab({ beats = [] }) {
     
     // Auto-detect headphones on mount and listen to changes
     const checkHeadphones = () => {
+      if (isManualOverrideRef.current) return;
       detectHeadphones().then(hasHeadphones => {
-        setIsStudioMode(hasHeadphones);
+        if (!isManualOverrideRef.current) {
+          setIsStudioMode(hasHeadphones);
+        }
       });
     };
 
@@ -313,6 +322,21 @@ export default function EntrenarTab({ beats = [] }) {
     if (targetRecording) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        // Immediately run detectHeadphones post-permission if not manually overridden!
+        let activeUseHeadphones = isStudioMode;
+        if (!isManualOverrideRef.current) {
+          try {
+            const hasHeadphones = await detectHeadphones();
+            if (!isManualOverrideRef.current) {
+              setIsStudioMode(hasHeadphones);
+              activeUseHeadphones = hasHeadphones;
+            }
+          } catch (err) {
+            console.warn('Failed to detect headphones post-permission:', err);
+          }
+        }
+
         audioChunksRef.current = [];
         
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -322,10 +346,26 @@ export default function EntrenarTab({ beats = [] }) {
         // Create Web Audio recording destination node
         const recordingDestination = audioCtx.createMediaStreamDestination();
 
-        // Route mic input to recording destination
+        // Route mic input through HPF
         const micSource = audioCtx.createMediaStreamSource(stream);
         micSourceRef.current = micSource;
-        micSource.connect(recordingDestination);
+
+        const hpfFilter = audioCtx.createBiquadFilter();
+        hpfFilter.type = 'highpass';
+
+        const now = audioCtx.currentTime;
+        if (activeUseHeadphones) {
+          // "Con Auriculares": bypass mode. Smoothly ramp to 0Hz
+          hpfFilter.frequency.setValueAtTime(100, now);
+          hpfFilter.frequency.linearRampToValueAtTime(0, now + 0.1);
+        } else {
+          // "Sin Auriculares": active mode. Smoothly ramp to 110Hz to filter rumble
+          hpfFilter.frequency.setValueAtTime(20, now);
+          hpfFilter.frequency.linearRampToValueAtTime(110, now + 0.1);
+        }
+
+        micSource.connect(hpfFilter);
+        hpfFilter.connect(recordingDestination);
 
         // Setup audio element for the beat (with crossOrigin for CORS)
         audioRef.current = new Audio(beatUrl);
@@ -335,9 +375,14 @@ export default function EntrenarTab({ beats = [] }) {
         // Connect the beat player to Web Audio graph
         const beatSource = audioCtx.createMediaElementSource(audioRef.current);
         beatSourceRef.current = beatSource;
-        // Beat goes both to recording destination (mix) and physical output (headphones/speakers)
-        beatSource.connect(recordingDestination);
+        
+        // Beat goes to physical output (headphones/speakers)
         beatSource.connect(audioCtx.destination);
+
+        // Beat goes to recording destination ONLY in "Con Auriculares"
+        if (activeUseHeadphones) {
+          beatSource.connect(recordingDestination);
+        }
 
         // MediaRecorder records directly from the unified mixed stream
         const mediaRecorder = new MediaRecorder(recordingDestination.stream);
@@ -638,7 +683,7 @@ export default function EntrenarTab({ beats = [] }) {
         })
         .catch((err) => {
           console.error('Audio play failed:', err);
-          alert('Error de reproducción en el celular: ' + err.message + '\n\nDetalle: Los navegadores en celulares a veces bloquean la reproducción automática o formatos no compatibles. Intenta grabar en Modo Estudio (mezcla digital WAV).');
+          alert('Error de reproducción en el celular: ' + err.message + '\n\nDetalle: Los navegadores en celulares a veces bloquean la reproducción automática o formatos no compatibles. Intenta grabar con auriculares (mezcla digital WAV).');
           setPlayingRecId(null);
         });
 
@@ -736,7 +781,7 @@ export default function EntrenarTab({ beats = [] }) {
               {isRecording && (
                 <div className="rec-badge">
                   <div className="rec-dot" />
-                  <span>GRABANDO ({isStudioMode ? 'ESTUDIO' : 'PLAZA'})</span>
+                  <span>GRABANDO ({isStudioMode ? 'AURICULARES' : 'PARLANTE'})</span>
                 </div>
               )}
             </div>
@@ -835,9 +880,13 @@ export default function EntrenarTab({ beats = [] }) {
             <button onClick={handleStartClick} className="btn-empezar-giant">
               [ EMPEZAR ]
             </button>
-            <div className="hardware-status-text mono-text">
-              {isStudioMode ? "🎧 Modo Estudio Activo" : "🔊 Modo Plaza Activo"}
-            </div>
+            <button 
+              onClick={toggleStudioModeManually} 
+              className="hardware-status-btn mono-text"
+              title="Alternar uso de auriculares"
+            >
+              {isStudioMode ? "🎧 Con Auriculares (Recomendado)" : "🔊 Sin Auriculares (Parlante)"}
+            </button>
           </div>
 
           {/* Saved recordings list */}
@@ -1375,12 +1424,30 @@ export default function EntrenarTab({ beats = [] }) {
           color: rgba(57, 211, 83, 0.85);
         }
 
-        .hardware-status-text {
-          font-size: 11px;
-          font-weight: 500;
+        .hardware-status-btn {
+          background: var(--bg-card);
+          border: 1.5px dashed var(--border-subtle);
+          border-radius: 8px;
           color: var(--text-secondary);
+          padding: 8px 16px;
+          font-size: 11px;
+          font-weight: 600;
+          font-family: var(--font-mono);
+          cursor: pointer;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+          transition: all 0.2s ease;
+          width: 100%;
           text-align: center;
-          letter-spacing: 0.02em;
+          box-shadow: 0px 2px 4px rgba(0,0,0,0.2);
+        }
+        .hardware-status-btn:hover {
+          color: var(--text-primary);
+          border-color: var(--color-accent-green);
+          background-color: rgba(57, 211, 83, 0.05);
+        }
+        .hardware-status-btn:active {
+          transform: scale(0.98);
         }
 
         .giant-word.libre-placeholder {

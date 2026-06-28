@@ -95,27 +95,8 @@ function resolveCoordinates(department, location) {
   return { lat: -32.5228, lng: -55.7658 };
 }
 
-// Sample mock data for Instagram feeds to support immediate offline testing
-const MOCK_INSTAGRAM_POSTS = [
-  {
-    caption: "¡ATENCIÓN MONTEVIDEO! 🚨 Este sábado 27 de junio se viene la Fecha 5 de Dark Jail. ⚡️ Nos vemos en Plaza Líber Seregni. Inscripciones a partir de las 18:30 hs. Valor de la inscripción: $50. Modalidad 1v1. Grupo de WhatsApp para inscripciones: https://chat.whatsapp.com/mock-darkjail",
-    timestamp: "2026-06-24T15:00:00Z",
-    permalink: "https://www.instagram.com/p/C8pX_3tMOCK1/",
-    username: "darkjail_"
-  },
-  {
-    caption: "¡FRANJA DE GAZA REGIONAL! ⚔️ La compe del oeste vuelve con todo en Canelones. Fecha: Domingo 28 de junio. Lugar: Plaza de Deportes de Canelones. Inscripciones abiertas desde las 17:00 hs. Entrada gratis, modalidad 2v2. Sumate al WhatsApp de la compe: https://chat.whatsapp.com/mock-franja",
-    timestamp: "2026-06-23T18:00:00Z",
-    permalink: "https://www.instagram.com/p/C8nB_2tMOCK2/",
-    username: "franjadegaza.freestyle"
-  },
-  {
-    caption: "Felicitamos a @rimador_uy por coronarse campeón de la Fecha 4 el pasado fin de semana en Buceo. ¡Tremendo nivel de todos!",
-    timestamp: "2026-06-22T12:00:00Z",
-    permalink: "https://www.instagram.com/p/C8kF_1tMOCK3/",
-    username: "darkjail_"
-  }
-];
+// Sample mock data for Instagram feeds to support immediate offline testing (disabled to prevent fake data ingestion)
+const MOCK_INSTAGRAM_POSTS = [];
 
 async function run() {
   console.log(`\n[${new Date().toISOString()}] >>> EL CRON SE HA DESPERTADO <<<`);
