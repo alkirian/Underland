@@ -382,14 +382,29 @@ Texto: ${p.caption}`).join('\n\n')}`;
   }
 }
 
-// Programación cron: 04:00 AM y 04:00 PM todos los días
-const CRON_SCHEDULE = '0 4,16 * * *';
+const isOnce = process.argv.includes('--once');
 
-console.log(`[${new Date().toISOString()}] Iniciando daemon de cronIngest...`);
-console.log(`Tarea programada con la expresión cron: "${CRON_SCHEDULE}" (todos los días a las 04:00 y 16:00)`);
+if (isOnce) {
+  console.log(`[${new Date().toISOString()}] Ejecución única iniciada (--once)...`);
+  run()
+    .then(() => {
+      console.log('Ejecución única finalizada con éxito.');
+      process.exit(0);
+    })
+    .catch(err => {
+      console.error('Error crítico en ejecución única:', err);
+      process.exit(1);
+    });
+} else {
+  // Programación cron: 04:00 AM y 04:00 PM todos los días
+  const CRON_SCHEDULE = '0 4,16 * * *';
 
-cron.schedule(CRON_SCHEDULE, () => {
-  run().catch(error => {
-    console.error(`[${new Date().toISOString()}] Error crítico ejecutando la tarea programada:`, error);
+  console.log(`[${new Date().toISOString()}] Iniciando daemon de cronIngest...`);
+  console.log(`Tarea programada con la expresión cron: "${CRON_SCHEDULE}" (todos los días a las 04:00 y 16:00)`);
+
+  cron.schedule(CRON_SCHEDULE, () => {
+    run().catch(error => {
+      console.error(`[${new Date().toISOString()}] Error crítico ejecutando la tarea programada:`, error);
+    });
   });
-});
+}
